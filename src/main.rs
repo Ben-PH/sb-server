@@ -3,24 +3,33 @@ use actix_files::{Files, NamedFile};
 use actix_identity::Identity;
 use actix_identity::{CookieIdentityPolicy, IdentityService};
 use actix_multipart::Multipart;
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Result};
+use actix_web::{get, post, web, App, HttpResponse, HttpServer, Result, Responder};
 use futures::stream::StreamExt;
 use rand::Rng;
 
 
 async fn index(id: Identity) -> Result<NamedFile> {
-    println!("{:?}", std::env::current_dir());
+    println!("your id is {:?}", id.identity());
     Ok(NamedFile::open("./client/index.html")?)
 }
 
 
 #[post("/login/{name}")]
-async fn login(id: Identity, name: web::Path<String>) -> Result<NamedFile> {
+async fn login(id: Identity, name: web::Path<String>) -> Result<impl Responder> {
 
+    id.remember(name.to_string());
     println!("hello, {:?}", name);
-    Ok(NamedFile::open("./client/index.html")?)
+    HttpResponse::Ok().finish().await
 }
 
+#[post("/logout/{name}")]
+async fn logout(id: Identity, name: web::Path<String>) -> Result<impl Responder> {
+
+    id.forget();
+    println!("goodbye, {:?}", name);
+    HttpResponse::Ok().finish().await
+
+}
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
@@ -34,6 +43,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/")
                      .service(login)
+                     .service(logout)
                      .service(Files::new("/pkg", "./client/pkg"))
                     .default_service(web::route().to(web::HttpResponse::NotFound)),
             )
