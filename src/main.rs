@@ -25,9 +25,18 @@ async fn login(id: Identity, name: web::Path<String>) -> Result<impl Responder> 
 #[post("/logout/{name}")]
 async fn logout(id: Identity, name: web::Path<String>) -> Result<impl Responder> {
 
-    id.forget();
-    println!("goodbye, {:?}", name);
-    HttpResponse::Ok().finish().await
+    match id.identity() {
+        Some(name) => {
+            println!("goodbye, {:?}", name);
+            id.forget();
+            HttpResponse::Ok().finish().await
+        },
+        None => {
+            println!("you say you are {:?}, but I don't think we've met :(", name);
+            HttpResponse::Ok().finish().await
+        }
+
+    }
 
 }
 #[actix_rt::main]
