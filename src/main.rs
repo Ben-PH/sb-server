@@ -3,6 +3,8 @@ use std::num::NonZeroU32;
 use actix_files::{Files, NamedFile};
 use actix_identity::Identity;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Result, Responder};
+use actix_web::{post, web, App, HttpResponse, HttpServer, Result, Responder, middleware};
+use rand::Rng;
 
 use mongodb::bson::{ self, doc, Binary, spec};
 use serde::{Serialize, Deserialize};
@@ -148,6 +150,8 @@ async fn logout(id: Identity, name: web::Path<String>) -> Result<impl Responder>
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
 
+    std::env::set_var("RUST_LOG", "actix_web=info");
+    env_logger::init();
     let db = mongodb::Client::with_uri_str("mongodb://localhost:27017")
         .await.unwrap().database("spacebook");
 
@@ -156,6 +160,7 @@ async fn main() -> std::io::Result<()> {
         let pwds = db.collection("passwords");
 
         App::new()
+            .wrap(middleware::Logger::default())
             .data(DbCollections{users})
             .data(PwdDb{pbkdf2_iters: NonZeroU32::new(1000).unwrap(), db_salt: PWD_DB_SALT, storage: pwds})
             .service(
