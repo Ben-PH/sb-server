@@ -4,7 +4,7 @@ use actix_files::{Files, NamedFile};
 use actix_identity::Identity;
 use actix_web::{post, web, App, HttpResponse, HttpServer, Result, Responder};
 
-use mongodb::bson::{ doc, Binary, spec};
+use mongodb::bson::{ self, doc, Binary, spec};
 use serde::{Serialize, Deserialize};
 
 static PBKDF2_ALG: ring::pbkdf2::Algorithm = ring::pbkdf2::PBKDF2_HMAC_SHA256;
@@ -29,6 +29,24 @@ struct AuthData {
     password: String,
 }
 
+
+#[derive(Serialize, Deserialize)]
+struct UserDocument {
+    _id: bson::oid::ObjectId,
+    first_name: String,
+    last_name: String,
+    email: String,
+    password: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct User {
+    first_name: String,
+    last_name: String,
+    email: String,
+    password: String,
+}
+
 async fn index(id: Identity) -> Result<NamedFile> {
     println!("your id is {:?}", id.identity());
     Ok(NamedFile::open("./client/index.html")?)
@@ -46,7 +64,7 @@ impl PwdDb {
 
 #[post("/create")]
 async fn create(
-    auth_data: web::Json<AuthData>,
+    auth_data: web::Json<User>,
     user_db: web::Data<DbCollections>,
     pswd_db: web::Data<PwdDb>,
 ) -> Result<impl Responder> {
@@ -64,18 +82,32 @@ async fn create(
     let mut to_store = Credential([0u8; CREDENTIAL_LEN]);
     ring::pbkdf2::derive(PBKDF2_ALG, pswd_db.pbkdf2_iters, &salt,
                           &auth_data.password.as_bytes(), &mut to_store.0);
+    let hash = Binary{
+                    subtype: spec::BinarySubtype::Generic,
+                    bytes: to_store.0.to_vec()
+    };
     let foo = pswd_db
         .storage
         .insert_one(
             doc!{
-                "email": auth_data.email,
-                "hashed": Binary{
-                    subtype: spec::BinarySubtype::Generic,
-                    bytes: to_store.0.to_vec()}
+                "email": &auth_data.email,
+                "hashed": &hash,
             },
             None
         ).await;
-    println!("{:?}", foo);
+
+    let bar = user_db
+        .users
+        .insert_one(
+            doc!{
+                "first_name": auth_data.first_name,
+                "last_name": auth_data.last_name,
+                "email": auth_data.email,
+                // TODO: link to password hashing document
+                "password": &hash,
+            },
+            None
+        ).await;
     HttpResponse::Ok().await
 }
 
@@ -127,7 +159,7 @@ async fn main() -> std::io::Result<()> {
             .data(DbCollections{users})
             .data(PwdDb{pbkdf2_iters: NonZeroU32::new(1000).unwrap(), db_salt: PWD_DB_SALT, storage: pwds})
             .service(
-                web::scope("/api/")
+                web::scope("/api/auth")
                     .service(create)
                     .service(login)
                     .service(logout)
