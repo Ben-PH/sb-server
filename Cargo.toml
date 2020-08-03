@@ -16,5 +16,9 @@ actix-rt = "1.1.1"
 futures-timer = "3.0.2"
 futures = "0.3.5"
 rand = "*"
+serde = "*"
+ring = "*"
+pbkdf2 = "*"
+mongodb = "1"
 
 shared = { path = "../shared" }
