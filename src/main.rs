@@ -207,8 +207,8 @@ async fn login(
     }
 }
 
-#[delete("/{email}")]
-async fn logout(id: Identity, email: web::Path<String>) -> Result<impl Responder> {
+#[delete("")]
+async fn logout(id: Identity) -> Result<impl Responder> {
     match id.identity() {
         Some(email) => {
             println!("goodbye, {:?}", email);
@@ -216,11 +216,10 @@ async fn logout(id: Identity, email: web::Path<String>) -> Result<impl Responder
             HttpResponse::Ok().finish().await
         }
         None => {
-            println!(
-                "you say you are {:?}, but I don't think we've met :(",
-                email
-            );
-            HttpResponse::Ok().finish().await
+            println!("sorry, who are you?");
+            HttpResponse::Unauthorized()
+                .reason("invalid Authorization cookie")
+                .await
         }
     }
 }
