@@ -19,6 +19,8 @@ rand = "*"
 serde = "*"
 ring = "*"
 pbkdf2 = "*"
+env_logger = "*"
+lazy_static = "1.4"
 mongodb = "1"
 
 shared = { path = "../shared" }
