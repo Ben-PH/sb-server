@@ -2,7 +2,9 @@ use std::num::NonZeroU32;
 
 use actix_files::{Files, NamedFile};
 use actix_identity::{CookieIdentityPolicy, Identity, IdentityService};
-use actix_web::{delete, middleware, post, web, App, HttpResponse, HttpServer, Responder, Result};
+use actix_web::{
+    delete, get, middleware, post, web, App, HttpResponse, HttpServer, Responder, Result,
+};
 use rand::Rng;
 use ring::rand::{SecureRandom, SystemRandom};
 
@@ -199,7 +201,7 @@ async fn login(
         .is_ok()
     {
         id.remember(auth.email);
-        HttpResponse::Ok().reason("you are logged in").await
+        HttpResponse::Ok().reason("you are logged in").json(user).await
     } else {
         HttpResponse::Unauthorized()
             .reason("invalid username or password")
@@ -228,6 +230,14 @@ struct AppData {
     rng: SystemRandom,
 }
 
+#[get("")]
+async fn profile(id: Identity) -> Result<impl Responder> {
+    match id.identity() {
+        Some(_) => HttpResponse::Ok().await,
+        None => HttpResponse::Unauthorized().await,
+    }
+}
+
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "actix_web=info");
@@ -254,6 +264,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(IdentityService::new(
                 CookieIdentityPolicy::new(&private_key)
                     .name("Authorization")
+                    .max_age(60 * 10)
                     .secure(true),
             ))
             .wrap(middleware::Logger::default())
@@ -266,9 +277,9 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/auth")
                     .service(create)
+                    .service(profile)
                     .service(login)
                     .service(logout)
-                    .service(Files::new("/pkg", "./client/pkg"))
                     .default_service(web::route().to(web::HttpResponse::NotFound)),
             )
             .service(Files::new("/pkg", "./client/pkg"))
