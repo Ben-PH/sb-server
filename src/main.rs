@@ -172,7 +172,8 @@ async fn login(
         _ => None,
     };
 
-    let salt = match col.users.find_one(doc! {"email": &auth.email}, None).await {
+    let user = col.users.find_one(doc! {"email": &auth.email}, None).await;
+    let salt = match user {
         Ok(Some(mut doc)) => match doc.remove("salt") {
             Some(bson::Bson::Binary(bin)) => {
                 println!("{:?}", doc);
@@ -189,6 +190,14 @@ async fn login(
 
     // pull out the password hash and users salt from the database
     // TODO don't do unwrap in a scop guarded by is_some(). do it the rusty way.
+    let mut user = match col.users.find_one(doc! {"email": &auth.email}, None).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return HttpResponse::Unauthorized().reason("couldn't find the users email").await,
+        _ => return HttpResponse::InternalServerError().await
+    };
+
+    user.remove("_id");
+    user.remove("salt");
     if salt.is_some()
         && hash.is_some()
         && ring::pbkdf2::verify(
@@ -231,10 +240,15 @@ struct AppData {
 }
 
 #[get("")]
-async fn profile(id: Identity) -> Result<impl Responder> {
+async fn profile(id: Identity, users: web::Data<DbCollections>) -> Result<impl Responder> {
+    println!("auth get id: {:?}", id.identity());
     match id.identity() {
-        Some(_) => HttpResponse::Ok().await,
-        None => HttpResponse::Unauthorized().await,
+        Some(email) => {
+            let mut user = users.into_inner().users.find_one(doc! {"email": &email}, None).await.unwrap().unwrap();
+            user.remove("_id");
+            user.remove("salt");
+            HttpResponse::Ok().json(user).await},
+        None => HttpResponse::Unauthorized().reason("no-good auth cookie").await,
     }
 }
 
