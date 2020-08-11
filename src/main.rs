@@ -7,7 +7,6 @@ use actix_web::{
 };
 
 mod auth;
-pub mod shared;
 use rand::Rng;
 use ring::rand::SecureRandom;
 

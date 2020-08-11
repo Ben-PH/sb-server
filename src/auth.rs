@@ -11,7 +11,7 @@ use mongodb::bson::{doc, Bson, Binary, spec};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 
-use crate::shared;
+use shared;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(create)
