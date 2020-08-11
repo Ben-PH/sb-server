@@ -111,21 +111,25 @@ async fn create(
     };
 
     // TODO handle bad insertion
-    pswd_db
-        .storage
-        .insert_one(
-            doc! {
-                "email": &auth_data.email,
-                "hashed": &hash,
-            },
-            None,
-        )
-        .await;
+    let pwd_storage = &pswd_db.storage;
+    let db_storage = &user_db.users;
+
+
+
+    match pwd_storage.insert_one(
+        doc! {
+            "email": &auth_data.email,
+            "hashed": &hash,
+        },
+        None,
+    ).await {
+        Ok(_) => {},
+        Err(_) => return HttpResponse::InternalServerError().await
+    }
+
 
     // TODO handle bad insertion
-    user_db
-        .users
-        .insert_one(
+    db_storage.insert_one(
             doc!{
                 "first_name": auth_data.first_name,
                 "last_name": auth_data.last_name,
