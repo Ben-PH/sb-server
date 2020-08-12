@@ -1,29 +1,21 @@
-use ring::rand::{SecureRandom, SystemRandom};
-const CREDENTIAL_LEN: usize = ring::digest::SHA256_OUTPUT_LEN;
-const VER_ITER: u32 = 1000;
-pub struct Credential([u8; CREDENTIAL_LEN]);
-use actix_web::{
-    delete, get, post, web, HttpResponse, Responder, Result,
-};
-static PBKDF2_ALG: ring::pbkdf2::Algorithm = ring::pbkdf2::PBKDF2_HMAC_SHA256;
-use actix_identity::Identity;
-use mongodb::bson::{doc, Bson, Binary, spec};
-use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 
-use shared;
+use actix_identity::Identity;
+use actix_web::{delete, get, post, web, HttpResponse, Responder, Result};
+use mongodb::bson::{doc, spec, Binary, Bson};
+use ring::rand::{SecureRandom, SystemRandom};
+
+const CREDENTIAL_LEN: usize = ring::digest::SHA256_OUTPUT_LEN;
+const VER_ITER: u32 = 1000;
+
+pub struct Credential([u8; CREDENTIAL_LEN]);
+static PBKDF2_ALG: ring::pbkdf2::Algorithm = ring::pbkdf2::PBKDF2_HMAC_SHA256;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(create)
-       .service(profile)
-       .service(login)
-       .service(logout);
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AuthData {
-    email: String,
-    password: String,
+        .service(profile)
+        .service(login)
+        .service(logout);
 }
 
 pub struct DbCollections {
@@ -32,9 +24,8 @@ pub struct DbCollections {
 
 impl DbCollections {
     pub fn init(users: mongodb::Collection) -> Self {
-        Self {users}
+        Self { users }
     }
-
 }
 
 pub struct PwdDb {
@@ -53,24 +44,24 @@ impl PwdDb {
     }
     pub fn init(storage: mongodb::Collection) -> Self {
         Self {
-                pbkdf2_iters: NonZeroU32::new(VER_ITER).unwrap(),
-                storage,
+            pbkdf2_iters: NonZeroU32::new(VER_ITER).unwrap(),
+            storage,
         }
     }
 }
 
 #[post("/create")]
 async fn create(
-    auth_data: web::Json<shared::User>,
+    reg_data: web::Json<shared::Register>,
     app_data: web::Data<crate::AppData>,
     user_db: web::Data<DbCollections>,
     pswd_db: web::Data<PwdDb>,
 ) -> Result<impl Responder> {
     let user_db = user_db.into_inner();
-    let auth_data = auth_data.into_inner();
+    let reg_data = reg_data.into_inner();
     if let Ok(Some(_)) = user_db
         .users
-        .find_one(doc! {"email": &auth_data.email}, None)
+        .find_one(doc! {"email": &reg_data.email}, None)
         .await
     {
         return HttpResponse::Unauthorized()
@@ -82,7 +73,7 @@ async fn create(
     let pswd_db = pswd_db.into_inner();
     if let Ok(Some(_)) = pswd_db
         .storage
-        .find_one(doc! {"email": &auth_data.email}, None)
+        .find_one(doc! {"email": &reg_data.email}, None)
         .await
     {
         return HttpResponse::InternalServerError()
@@ -102,7 +93,7 @@ async fn create(
         PBKDF2_ALG,
         pswd_db.pbkdf2_iters,
         &salt,
-        &auth_data.password.as_bytes(),
+        &reg_data.password.as_bytes(),
         &mut to_store.0,
     );
     let hash = Binary {
@@ -114,38 +105,40 @@ async fn create(
     let pwd_storage = &pswd_db.storage;
     let db_storage = &user_db.users;
 
-
-
-    match pwd_storage.insert_one(
-        doc! {
-            "email": &auth_data.email,
-            "hashed": &hash,
-        },
-        None,
-    ).await {
-        Ok(_) => {},
-        Err(_) => return HttpResponse::InternalServerError().await
+    match pwd_storage
+        .insert_one(
+            doc! {
+                "email": &reg_data.email,
+                "hashed": &hash,
+            },
+            None,
+        )
+        .await
+    {
+        Ok(_) => {}
+        Err(_) => return HttpResponse::InternalServerError().await,
     }
 
-
     // TODO handle bad insertion
-    db_storage.insert_one(
-            doc!{
-                "first_name": auth_data.first_name,
-                "last_name": auth_data.last_name,
-                "email": auth_data.email,
+    db_storage
+        .insert_one(
+            doc! {
+                "first_name": reg_data.first_name,
+                "last_name": reg_data.last_name,
+                "email": reg_data.email,
                 // TODO: link to password hashing document
                 "salt": Binary{subtype: spec::BinarySubtype::Generic, bytes: salt.to_vec()}
             },
-            None
-        ).await;
+            None,
+        )
+        .await;
     HttpResponse::Ok().await
 }
 
 #[post("/login")]
 async fn login(
     id: Identity,
-    auth_data: web::Json<AuthData>,
+    auth_data: web::Json<shared::Login>,
     passwords: web::Data<PwdDb>,
     col: web::Data<DbCollections>,
 ) -> Result<impl Responder> {
@@ -188,8 +181,12 @@ async fn login(
     // TODO don't do unwrap in a scop guarded by is_some(). do it the rusty way.
     let mut user = match col.users.find_one(doc! {"email": &auth.email}, None).await {
         Ok(Some(user)) => user,
-        Ok(None) => return HttpResponse::Unauthorized().reason("couldn't find the users email").await,
-        _ => return HttpResponse::InternalServerError().await
+        Ok(None) => {
+            return HttpResponse::Unauthorized()
+                .reason("couldn't find the users email")
+                .await
+        }
+        _ => return HttpResponse::InternalServerError().await,
     };
 
     user.remove("_id");
@@ -206,7 +203,10 @@ async fn login(
         .is_ok()
     {
         id.remember(auth.email);
-        HttpResponse::Ok().reason("you are logged in").json(user).await
+        HttpResponse::Ok()
+            .reason("you are logged in")
+            .json(user)
+            .await
     } else {
         HttpResponse::Unauthorized()
             .reason("invalid username or password")
@@ -235,11 +235,22 @@ async fn profile(id: Identity, users: web::Data<DbCollections>) -> Result<impl R
     println!("auth get id: {:?}", id.identity());
     match id.identity() {
         Some(email) => {
-            let mut user = users.into_inner().users.find_one(doc! {"email": &email}, None).await.unwrap().unwrap();
+            let mut user = users
+                .into_inner()
+                .users
+                .find_one(doc! {"email": &email}, None)
+                .await
+                .unwrap()
+                .unwrap();
             id.remember(email);
             user.remove("_id");
             user.remove("salt");
-            HttpResponse::Ok().json(user).await},
-        None => HttpResponse::Unauthorized().reason("no-good auth cookie").await,
+            HttpResponse::Ok().json(user).await
+        }
+        None => {
+            HttpResponse::Unauthorized()
+                .reason("no-good auth cookie")
+                .await
+        }
     }
 }

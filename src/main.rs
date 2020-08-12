@@ -1,10 +1,7 @@
-
-use ring::rand::SystemRandom;
 use actix_files::{Files, NamedFile};
 use actix_identity::{CookieIdentityPolicy, Identity, IdentityService};
-use actix_web::{
-    middleware, web, App, HttpServer, Result,
-};
+use actix_web::{middleware, web, App, HttpServer, Result};
+use ring::rand::SystemRandom;
 
 mod auth;
 use rand::Rng;
@@ -14,7 +11,6 @@ use mongodb::bson::{self, doc};
 use serde::{Deserialize, Serialize};
 
 // static PWD_DB_SALT: &[u8; 16] = b"database spicey!";
-
 
 pub struct AppData {
     rng: SystemRandom,
@@ -33,7 +29,6 @@ async fn index(id: Identity) -> Result<NamedFile> {
     println!("your id is {:?}", id.identity());
     Ok(NamedFile::open("./client/index.html")?)
 }
-
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
@@ -67,9 +62,12 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .data(auth::DbCollections::init(users))
             .data(auth::PwdDb::init(pwds))
-            .data(AppData{rng})
-            .service(web::scope("/api/auth").configure(auth::config).default_service(web::route().to(web::HttpResponse::NotFound)))
-
+            .data(AppData { rng })
+            .service(
+                web::scope("/api/auth")
+                    .configure(auth::config)
+                    .default_service(web::route().to(web::HttpResponse::NotFound)),
+            )
             .service(Files::new("/pkg", "./client/pkg"))
             .service(Files::new("/", "./client/static").index_file("index.html"))
             .default_service(web::get().to(index))
